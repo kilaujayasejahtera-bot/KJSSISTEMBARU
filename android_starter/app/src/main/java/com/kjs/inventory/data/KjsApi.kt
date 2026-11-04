@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 
 object KjsApi {
     // URL Web App Google Apps Script KJS yang aktif
-    var API_URL = "https://script.google.com/macros/s/AKfycbzGfQMuYOwtSFkd48nwMmxSLGd-Pmi4rJjbJuM0P-Nri_a4QwCfTRGmSBBkFX6CXk0sdQ/exec"
+    var API_URL = "https://script.google.com/macros/s/AKfycbw3lXRWrfVcvdNwQhfUOtUkaPY-62z3oq9Ykhfxvm5VsqfGsbny8WH4rkpz8Oj-535x/exec"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)

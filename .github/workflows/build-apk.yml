@@ -1,0 +1,39 @@
+name: Build Android APK (KJS Inventory)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Memungkinkan tombol "Run workflow" langsung di web GitHub
+
+jobs:
+  build:
+    name: Build APK (Debug)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Berikan Izin Eksekusi Gradle Wrapper
+        run: chmod +x android_starter/gradlew
+
+      - name: Build APK dengan Gradle
+        run: |
+          cd android_starter
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload File APK sebagai Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KJS-Inventory-App-Debug
+          path: android_starter/app/build/outputs/apk/debug/*.apk
+          retention-days: 14
