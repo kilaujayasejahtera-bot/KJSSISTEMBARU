@@ -1,0 +1,8 @@
+{
+  "name": "KJS Inventory - Android Starter & Simulator",
+  "description": "Aplikasi Manajemen Persediaan PT Kilau Jaya Sejahtera berbasis Android & Web Simulator interaktif.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

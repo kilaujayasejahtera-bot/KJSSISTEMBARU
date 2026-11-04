@@ -1,0 +1,35 @@
+#!/bin/sh
+
+#
+# Gradle wrapper script for Linux / macOS
+#
+
+set -e
+
+APP_BASE_NAME=`basename "$0"`
+APP_HOME="`cd "\`dirname "$0"\`" >/dev/null 2>&1 && pwd`"
+
+# Determine the Java command to use to start the JVM.
+if [ -n "$JAVA_HOME" ] ; then
+    if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
+        JAVACMD="$JAVA_HOME/jre/sh/java"
+    else
+        JAVACMD="$JAVA_HOME/bin/java"
+    fi
+else
+    JAVACMD="java"
+fi
+
+CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+
+# Fallback: if gradle wrapper jar is missing, try running system gradle directly if present
+if [ ! -r "$CLASSPATH" ]; then
+    if command -v gradle >/dev/null 2>&1; then
+        exec gradle "$@"
+    else
+        echo "Error: Could not find or read gradle wrapper. Open project directly in Android Studio." >&2
+        exit 1
+    fi
+fi
+
+exec "$JAVACMD" -jar "$CLASSPATH" "$@"
