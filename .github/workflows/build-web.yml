@@ -2,9 +2,9 @@ name: Build & Test Web App (Vite React)
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   workflow_dispatch:
 
 jobs:
@@ -20,10 +20,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci || npm install
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Run Build
         run: npm run build
@@ -32,5 +36,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kjs-web-dist
-          path: dist
+          path: dist/
           retention-days: 7
+          if-no-files-found: error
