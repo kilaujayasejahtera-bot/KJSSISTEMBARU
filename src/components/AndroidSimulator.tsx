@@ -140,7 +140,7 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('Pengguna KJS');
   const [role, setRole] = useState<'Admin' | 'Karyawan'>('Karyawan');
-  const [activeTab, setActiveTab] = useState<'Beranda' | 'Stok' | 'Transaksi' | 'Riwayat' | 'Akun' | 'Kartu Stok'>('Beranda');
+  const [activeTab, setActiveTab] = useState<'Beranda' | 'Stok' | 'Transaksi' | 'Stok Keluar' | 'Riwayat' | 'Akun' | 'Kartu Stok'>('Beranda');
   
   // Login form
   const [inputUsername, setInputUsername] = useState('');
@@ -179,8 +179,10 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
 
   // Dashboard Sub-Views: Akses langsung data dari kartu ringkasan
   const [dashboardSubView, setDashboardSubView] = useState<'bahan' | 'produk' | 'supplier' | null>(null);
+  const [dashboardMaterialCategory, setDashboardMaterialCategory] = useState<'BAHAN BAKU' | 'BAHAN PENGEMAS'>('BAHAN BAKU');
+  const [trxMaterialCategory, setTrxMaterialCategory] = useState<'BAHAN BAKU' | 'BAHAN PENGEMAS'>('BAHAN BAKU');
   const [dashboardSubSearch, setDashboardSubSearch] = useState('');
-  const [selectedDashboardItemHistory, setSelectedDashboardItemHistory] = useState<{ item: any; category: 'BAHAN BAKU' | 'PRODUK JADI' } | null>(null);
+  const [selectedDashboardItemHistory, setSelectedDashboardItemHistory] = useState<{ item: any; category: 'BAHAN BAKU' | 'BAHAN PENGEMAS' | 'PRODUK JADI' } | null>(null);
   const [selectedSupplierDetail, setSelectedSupplierDetail] = useState<SupplierOption | null>(null);
 
 
@@ -208,6 +210,20 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [coaStatus, setCoaStatus] = useState<string>('');
   const [coaExists, setCoaExists] = useState(false);
   const [savedStockInId, setSavedStockInId] = useState('');
+
+  // Stok keluar produk jadi (mengikuti modal web KJS).
+  const [productOutDate, setProductOutDate] = useState(new Date().toLocaleDateString('en-CA'));
+  const [productOutProductId, setProductOutProductId] = useState('');
+  const [productOutBatches, setProductOutBatches] = useState<Array<{ batch: string; stok: number; satuan?: string }>>([]);
+  const [productOutBatch, setProductOutBatch] = useState('');
+  const [productOutTotalStock, setProductOutTotalStock] = useState<number | null>(null);
+  const [productOutQty, setProductOutQty] = useState('');
+  const [productOutTujuan, setProductOutTujuan] = useState('Reseller JP');
+  const [productOutNotes, setProductOutNotes] = useState('');
+  const [productOutLoading, setProductOutLoading] = useState(false);
+  const [productOutSaving, setProductOutSaving] = useState(false);
+  const [productOutError, setProductOutError] = useState('');
+  const [productOutNotice, setProductOutNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Detail/edit transaksi stok masuk yang dibuka dari riwayat Kartu Stok.
   const [stockInDetailOpen, setStockInDetailOpen] = useState(false);
@@ -284,16 +300,105 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
     return result as T;
   };
 
+  const parseProductOutProduct = (value: string) => {
+    const selected = inventory.find(item => item.id === value);
+    const idParts = String(value || '').split(':');
+    const code = selected?.id.startsWith('PRODUK:') ? idParts[1] : (selected?.sku || '');
+    const packaging = selected?.id.startsWith('PRODUK:') ? idParts.slice(2).join(':') : '';
+    return { selected, code: String(code || '').trim(), packaging: String(packaging || '').trim() };
+  };
+
+  const loadProductOutAvailability = async (productId: string) => {
+    setProductOutProductId(productId);
+    setProductOutBatch('');
+    setProductOutQty('');
+    setProductOutBatches([]);
+    setProductOutTotalStock(null);
+    setProductOutError('');
+    setProductOutNotice(null);
+    if (!productId) return;
+
+    const { code, packaging } = parseProductOutProduct(productId);
+    if (!code) {
+      setProductOutError('Kode produk tidak terbaca dari data persediaan.');
+      return;
+    }
+    setProductOutLoading(true);
+    try {
+      const [batchResponse, totalResponse] = await Promise.all([
+        callKjsApi<any>({ action: 'availableProductBatches', kodeProduk: code, kemasan: packaging }),
+        callKjsApi<any>({ action: 'currentProductStock', kodeProduk: code, kemasan: packaging }),
+      ]);
+      const rows = Array.isArray(batchResponse) ? batchResponse : (batchResponse?.items || batchResponse?.batches || batchResponse?.data || []);
+      setProductOutBatches((Array.isArray(rows) ? rows : []).map((row: any) => ({
+        batch: String(row.batch || row.Batch || row.noBatch || '').trim(),
+        stok: Number(row.stok ?? row.stock ?? row.qty ?? 0),
+        satuan: String(row.satuan || row.unit || 'PCS'),
+      })).filter((row: { batch: string; stok: number }) => row.batch && row.stok > 0));
+      const total = typeof totalResponse === 'number' ? totalResponse : Number(totalResponse?.stok ?? totalResponse?.stock ?? totalResponse?.totalStock ?? totalResponse?.data ?? 0);
+      setProductOutTotalStock(Number.isFinite(total) ? total : 0);
+    } catch (error) {
+      setProductOutError(error instanceof Error ? error.message : 'Gagal membaca batch dan stok produk. Pastikan dispatcher AndroidApi.gs sudah diperbarui dan di-deploy.');
+    } finally {
+      setProductOutLoading(false);
+    }
+  };
+
+  const handleSaveProductOut = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setProductOutNotice(null);
+    const { selected, code, packaging } = parseProductOutProduct(productOutProductId);
+    const batchInfo = productOutBatches.find(item => item.batch === productOutBatch);
+    const qty = Number(productOutQty);
+    if (!code || !productOutDate || !productOutBatch || !Number.isFinite(qty) || qty <= 0) {
+      setProductOutNotice({ type: 'error', message: 'Pilih produk dan batch, lalu isi tanggal serta Qty lebih dari 0.' });
+      return;
+    }
+    if (!batchInfo) {
+      setProductOutNotice({ type: 'error', message: 'Batch yang dipilih sudah tidak tersedia. Muat ulang stok lalu pilih kembali.' });
+      return;
+    }
+    if (qty > batchInfo.stok) {
+      setProductOutNotice({ type: 'error', message: `Qty melebihi stok batch. Tersedia ${batchInfo.stok.toLocaleString('id-ID')} PCS.` });
+      return;
+    }
+
+    setProductOutSaving(true);
+    try {
+      const data = {
+        tanggal: productOutDate,
+        kodeProduk: code,
+        kemasan: packaging,
+        batch: productOutBatch,
+        qty,
+        tujuan: productOutTujuan.trim() || 'Reseller JP',
+        keterangan: productOutNotes.trim(),
+      };
+      const result = await callKjsApi<any>({ action: 'saveFinishedProductOut', data, payload: data, ...data });
+      if (result?.success === false) throw new Error(result.message || 'Gagal menyimpan stok keluar.');
+      const message = result?.message || `Stok keluar ${qty.toLocaleString('id-ID')} PCS untuk ${selected?.name || code} berhasil disimpan.`;
+      setProductOutQty('');
+      setProductOutNotes('');
+      await Promise.all([loadProductOutAvailability(productOutProductId), fetchInventoryData(), fetchDashboardData()]);
+      setProductOutNotice({ type: 'success', message });
+    } catch (error) {
+      setProductOutNotice({ type: 'error', message: error instanceof Error ? error.message : 'Gagal menyimpan stok keluar produk.' });
+    } finally {
+      setProductOutSaving(false);
+    }
+  };
+
   const loadStockInFormData = async () => {
     setIsLoadingFormData(true);
     try {
-      const [materialResult, supplierResult] = await Promise.all([
-        callKjsApi<MaterialOption[] | { items?: MaterialOption[] }>({ action: 'masterMaterials', category: 'BAHAN BAKU' }),
+      const [materialResults, supplierResult] = await Promise.all([
+        Promise.all(['BAHAN BAKU', 'BAHAN PENGEMAS'].map(category => callKjsApi<MaterialOption[] | { items?: MaterialOption[] }>({ action: 'masterMaterials', category }))),
         callKjsApi<SupplierOption[] | { items?: SupplierOption[] }>({ action: 'masterSuppliers' }),
       ]);
-      const rawMaterialRows: any[] = Array.isArray(materialResult)
-        ? materialResult
-        : (Array.isArray((materialResult as any)?.items) ? (materialResult as any).items : []);
+      const rawMaterialRows: any[] = materialResults.flatMap((result: any, index: number) => {
+        const rows = Array.isArray(result) ? result : (Array.isArray(result?.items) ? result.items : []);
+        return rows.map((row: any) => ({ ...row, kategori: row.kategori || row.Kategori || ['BAHAN BAKU', 'BAHAN PENGEMAS'][index] }));
+      });
       const rawSupplierRows: any[] = Array.isArray(supplierResult)
         ? supplierResult
         : (Array.isArray((supplierResult as any)?.items) ? (supplierResult as any).items : []);
@@ -775,6 +880,7 @@ const saveStockInDetailEdit = async () => {
   };
 
   const handleLogout = async () => {
+    if (!window.confirm('Apakah Anda yakin ingin keluar dari aplikasi?')) return;
     const token = localStorage.getItem(KJS_TOKEN_KEY);
     try {
       if (token) {
@@ -883,8 +989,8 @@ const saveStockInDetailEdit = async () => {
         idBahan: materialCode,
         namaBahan: chosenMaterial?.nama || materialCode,
         satuan: chosenMaterial?.satuan || 'gram',
-        kategori: 'BAHAN BAKU',
-        kategoriBahan: 'BAHAN BAKU',
+        kategori: trxMaterialCategory,
+        kategoriBahan: trxMaterialCategory,
         batch: trxBatch.trim(),
         expiredDate: trxExpiry,
         qty: qtyNum,
@@ -1276,12 +1382,12 @@ const saveStockInDetailEdit = async () => {
                               </button>
                               <div>
                                 <h3 className="text-[17px] font-bold text-[#14263D] leading-tight">
-                                  {dashboardSubView === 'bahan' && 'Daftar Bahan Baku'}
+                                  {dashboardSubView === 'bahan' && (dashboardMaterialCategory === 'BAHAN BAKU' ? 'Daftar Bahan Baku' : 'Daftar Bahan Pengemas')}
                                   {dashboardSubView === 'produk' && 'Daftar Produk Jadi'}
                                   {dashboardSubView === 'supplier' && 'Daftar Supplier'}
                                 </h3>
                                 <p className="text-[10px] text-[#64748B]">
-                                  {dashboardSubView === 'bahan' && 'Data bahan baku & saldo stok dari Google Sheets'}
+                                  {dashboardSubView === 'bahan' && 'Data bahan baku dan pengemas & saldo stok dari Google Sheets'}
                                   {dashboardSubView === 'produk' && 'Katalog produk jadi & saldo dari Google Sheets'}
                                   {dashboardSubView === 'supplier' && 'Data mitra pemasok dari Google Sheets'}
                                 </p>
@@ -1331,7 +1437,9 @@ const saveStockInDetailEdit = async () => {
                             const q = dashboardSubSearch.toLowerCase().trim();
                             const bahanList = inventory.filter(item => {
                               const cat = String(item.category || '').toUpperCase();
-                              const isBahan = cat.includes('BAHAN BAKU') || cat === 'BAHAN' || (!cat.includes('KEMAS') && !cat.includes('PRODUK'));
+                              const isBahan = dashboardMaterialCategory === 'BAHAN PENGEMAS'
+                                ? cat.includes('KEMAS')
+                                : (cat.includes('BAHAN BAKU') || cat === 'BAHAN' || (!cat.includes('KEMAS') && !cat.includes('PRODUK')));
                               const match = !q || item.name.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q);
                               return isBahan && match;
                             });
@@ -1355,15 +1463,19 @@ const saveStockInDetailEdit = async () => {
 
                             return (
                               <div className="space-y-2">
+                                <div className="flex gap-2">
+                                  <button onClick={() => setDashboardMaterialCategory('BAHAN BAKU')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${dashboardMaterialCategory === 'BAHAN BAKU' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}>Bahan Baku</button>
+                                  <button onClick={() => setDashboardMaterialCategory('BAHAN PENGEMAS')} className={`rounded-lg px-3 py-2 text-[10px] font-bold ${dashboardMaterialCategory === 'BAHAN PENGEMAS' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}>Bahan Pengemas</button>
+                                </div>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                  Ditemukan {bahanList.length} Bahan Baku
+                                  Ditemukan {bahanList.length} {dashboardMaterialCategory === 'BAHAN BAKU' ? 'Bahan Baku' : 'Bahan Pengemas'}
                                 </p>
                                 {bahanList.map(item => (
                                   <div
                                     key={item.id || item.sku}
                                     onClick={() => {
-                                      setSelectedDashboardItemHistory({ item, category: 'BAHAN BAKU' });
-                                      loadStockCard(item.sku, 'BAHAN BAKU');
+                                      setSelectedDashboardItemHistory({ item, category: dashboardMaterialCategory });
+                                      loadStockCard(item.sku, dashboardMaterialCategory);
                                     }}
                                     className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer group"
                                   >
@@ -2353,7 +2465,7 @@ const saveStockInDetailEdit = async () => {
                           </div>
 
                           <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-[11px]">
-                            Stok Masuk Bahan Baku tersambung ke Google Sheets. COA bisa diunggah saat input atau ditambahkan kemudian.
+                            Stok masuk bahan baku dan bahan pengemas tersambung ke Google Sheets. COA bisa diunggah saat input atau ditambahkan kemudian.
                           </div>
 
                           {trxSuccessMessage && (
@@ -2367,18 +2479,22 @@ const saveStockInDetailEdit = async () => {
                             {/* Pilih Barang */}
                             <div>
                               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                                Pilih Bahan Baku
+                                Pilih Jenis Bahan
                               </label>
+                              <div className="grid grid-cols-2 gap-2 mb-2">
+                                <button type="button" onClick={() => { setTrxMaterialCategory('BAHAN BAKU'); setSelectedItemId(''); }} className={`rounded-lg py-2 text-[11px] font-bold ${trxMaterialCategory === 'BAHAN BAKU' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Bahan Baku</button>
+                                <button type="button" onClick={() => { setTrxMaterialCategory('BAHAN PENGEMAS'); setSelectedItemId(''); }} className={`rounded-lg py-2 text-[11px] font-bold ${trxMaterialCategory === 'BAHAN PENGEMAS' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Bahan Pengemas</button>
+                              </div>
                               <select
                                 value={selectedItemId}
                                 onChange={e => { setSelectedItemId(e.target.value); setCoaStatus(''); setCoaExists(false); }}
                                 disabled={isLoadingFormData}
                                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-[#246BFD]"
                               >
-                                {materials.length === 0 ? (
-                                  <option value="">{isLoadingFormData ? 'Memuat bahan baku dari Google Sheets...' : 'Tidak ada bahan aktif'}</option>
+                                {materials.filter(item => String(item.kategori || '').toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU')).length === 0 ? (
+                                  <option value="">{isLoadingFormData ? 'Memuat bahan dari Google Sheets...' : 'Tidak ada bahan aktif'}</option>
                                 ) : (
-                                  materials.map(item => (
+                                  materials.filter(item => String(item.kategori || '').toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU')).map(item => (
                                     <option key={item.kode} value={item.kode}>[{item.kode}] {item.nama}</option>
                                   ))
                                 )}
@@ -2483,6 +2599,79 @@ const saveStockInDetailEdit = async () => {
                           </form>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* TAB 4: RIWAYAT */}
+                  {activeTab === 'Stok Keluar' && (
+                    <div className="space-y-4">
+                      <div className="sticky -top-5 -mt-5 -mx-5 p-5 pb-3 bg-[#F4F7FB]/95 backdrop-blur-xs z-10 border-b border-slate-200/60 shadow-2xs">
+                        <h3 className="text-[22px] font-bold text-[#14263D]">Stok Produk Keluar</h3>
+                        <p className="text-[11px] text-[#64748B]">Pengeluaran produk jadi berdasarkan batch yang tersedia</p>
+                      </div>
+
+                      {productOutError && (
+                        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-[11px]">
+                          <p>{productOutError}</p>
+                          <p className="mt-1 text-rose-700">Fitur ini memakai endpoint AndroidApi.gs: availableProductBatches, currentProductStock, dan saveFinishedProductOut.</p>
+                          <button type="button" onClick={() => productOutProductId && loadProductOutAvailability(productOutProductId)} className="mt-2 rounded-lg bg-rose-600 px-3 py-1.5 font-bold text-white">Coba lagi</button>
+                        </div>
+                      )}
+                      {productOutNotice && (
+                        <div className={`p-3 rounded-xl border text-xs ${productOutNotice.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+                          <div className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /><span>{productOutNotice.message}</span></div>
+                        </div>
+                      )}
+
+                      <form onSubmit={handleSaveProductOut} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-3">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tanggal</label>
+                          <input type="date" value={productOutDate} onChange={event => setProductOutDate(event.target.value)} required className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Produk</label>
+                          <select value={productOutProductId} onChange={event => loadProductOutAvailability(event.target.value)} required className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                            <option value="">Pilih produk</option>
+                            {inventory.filter(item => item.category === 'Produk Jadi').map(item => {
+                              const idParts = String(item.id).split(':');
+                              const code = item.id.startsWith('PRODUK:') ? idParts[1] : item.sku;
+                              const packaging = item.id.startsWith('PRODUK:') ? idParts.slice(2).join(':') : '';
+                              return <option key={item.id} value={item.id}>{code} - {item.name}{packaging ? ` — ${packaging}` : ''}</option>;
+                            })}
+                          </select>
+                          {!isLoadingInventory && inventory.filter(item => item.category === 'Produk Jadi').length === 0 && <p className="mt-1 text-[10px] text-amber-700">Produk jadi belum termuat. Periksa koneksi/API, lalu muat ulang persediaan.</p>}
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Batch</label>
+                          <select value={productOutBatch} onChange={event => { setProductOutBatch(event.target.value); setProductOutQty(''); }} disabled={!productOutProductId || productOutLoading || productOutBatches.length === 0} required className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs disabled:text-slate-400">
+                            <option value="">{productOutLoading ? 'Memuat batch…' : productOutProductId ? (productOutBatches.length ? 'Pilih batch tersedia' : 'Tidak ada batch yang masih tersedia') : 'Pilih produk terlebih dahulu'}</option>
+                            {productOutBatches.map(batch => <option key={batch.batch} value={batch.batch}>{batch.batch} — Stok {batch.stok.toLocaleString('id-ID')} PCS</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Qty</label>
+                          <input type="number" min="1" max={productOutBatches.find(batch => batch.batch === productOutBatch)?.stok || undefined} step="1" value={productOutQty} onChange={event => setProductOutQty(event.target.value)} required placeholder="Masukkan jumlah" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tujuan</label>
+                          <input type="text" value={productOutTujuan} onChange={event => setProductOutTujuan(event.target.value)} placeholder="Reseller JP" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Keterangan</label>
+                          <input type="text" value={productOutNotes} onChange={event => setProductOutNotes(event.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+                        </div>
+                        {(productOutTotalStock !== null || productOutBatch) && (
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-[10px] text-slate-500">{productOutBatch ? 'Stok batch tersedia' : 'Stok total tersedia'}</p>
+                            <p className="text-lg font-black text-[#14263D]">{(productOutBatch ? productOutBatches.find(batch => batch.batch === productOutBatch)?.stok : productOutTotalStock ?? 0)?.toLocaleString('id-ID') || 0} PCS</p>
+                            {productOutBatch && productOutTotalStock !== null && <p className="text-[10px] text-slate-500">Total seluruh batch: {productOutTotalStock.toLocaleString('id-ID')} PCS</p>}
+                          </div>
+                        )}
+                        <div className="flex gap-2 pt-1">
+                          <button type="button" onClick={() => { setProductOutProductId(''); setProductOutBatch(''); setProductOutBatches([]); setProductOutTotalStock(null); setProductOutQty(''); setProductOutNotes(''); setProductOutError(''); setProductOutNotice(null); }} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700">Reset</button>
+                          <button type="submit" disabled={productOutSaving || productOutLoading || !productOutBatch} className="flex-1 py-2.5 rounded-xl bg-[#14263D] text-white text-xs font-bold disabled:opacity-50">{productOutSaving ? 'MENYIMPAN…' : 'SIMPAN'}</button>
+                        </div>
+                      </form>
                     </div>
                   )}
 
@@ -2687,7 +2876,7 @@ const saveStockInDetailEdit = async () => {
                               {selectedDashboardItemHistory.item.sku}
                             </span>
                             <span className="text-[10px] font-bold text-slate-500">
-                              {selectedDashboardItemHistory.category === 'BAHAN BAKU' ? 'Bahan Baku' : 'Produk Jadi'}
+                              {selectedDashboardItemHistory.category === 'BAHAN BAKU' ? 'Bahan Baku' : selectedDashboardItemHistory.category === 'BAHAN PENGEMAS' ? 'Bahan Pengemas' : 'Produk Jadi'}
                             </span>
                           </div>
                           <h3 className="text-base font-black text-[#14263D] truncate mt-0.5">
@@ -2871,6 +3060,7 @@ const saveStockInDetailEdit = async () => {
                   {[
                     { label: 'Beranda' as const, icon: Home },
                     { label: 'Stok Masuk' as const, tab: 'Transaksi' as const, icon: ArrowDownLeft },
+                    { label: 'Stok Keluar' as const, icon: ArrowUpRight },
                     { label: 'Kartu Stok' as const, icon: Receipt },
                     { label: 'Akun' as const, icon: User }
                   ].map(tab => {
