@@ -32,7 +32,9 @@ import {
   ArrowLeft,
   FileText,
   Calendar,
-  Building2
+  Building2,
+  Sun,
+  Moon
 } from 'lucide-react';
 import type { InventoryItem, InventoryTransaction } from '../data/mockInventory';
 
@@ -140,6 +142,7 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('Pengguna KJS');
   const [role, setRole] = useState<'Admin' | 'Karyawan'>('Karyawan');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('kjs_inventory_theme') === 'dark' ? 'dark' : 'light');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<'Beranda' | 'Stok' | 'Transaksi' | 'Stok Keluar' | 'Riwayat' | 'Akun' | 'Kartu Stok'>('Beranda');
   
@@ -154,6 +157,10 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [dashboardData, setDashboardData] = useState<DashboardApiResponse | null>(null);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('kjs_inventory_theme', theme);
+  }, [theme]);
 
   // Simulator Mode: 'starter' (Matches MainActivity.kt with placeholders and '—') vs 'interactive' (Live Data)
   const [mode, setMode] = useState<'starter' | 'interactive'>('interactive');
@@ -1270,17 +1277,7 @@ const saveStockInDetailEdit = async () => {
           )}
 
           {/* Screen container */}
-          <div className={`w-full h-full bg-[#F4F7FB] overflow-hidden flex flex-col ${standalone ? 'rounded-none' : 'rounded-[36px]'} relative text-[#1E293B]`}>
-            {/* Android Status Bar */}
-            <div className="h-9 px-6 pt-2 pb-1 flex items-center justify-between text-[11px] font-semibold text-slate-600 bg-transparent z-20 select-none shrink-0">
-              <span>09:41</span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] tracking-tight text-slate-500">5G</span>
-                <div className="w-3.5 h-2.5 border border-slate-600 rounded-[2px] p-[1px] flex items-center">
-                  <div className="w-full h-full bg-slate-700 rounded-[1px]" />
-                </div>
-              </div>
-            </div>
+          <div data-theme={theme} className={`w-full h-full bg-[#F4F7FB] overflow-hidden flex flex-col ${standalone ? 'rounded-none' : 'rounded-[36px]'} relative text-[#1E293B]`}>
 
             {/* Screen Content Body */}
             {!isLoggedIn ? (
@@ -2812,6 +2809,19 @@ const saveStockInDetailEdit = async () => {
                         </div>
                       </div>
 
+                      <div className="rounded-[20px] border border-slate-100 bg-white p-4 shadow-xs">
+                        <h3 className="text-sm font-bold text-[#1E293B]">Tema tampilan</h3>
+                        <p className="mt-1 text-xs text-slate-500">Pilih tampilan yang nyaman digunakan.</p>
+                        <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+                          <button type="button" onClick={() => setTheme('light')} className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-bold transition-colors ${theme === 'light' ? 'bg-white text-[#1877F2] shadow-sm' : 'text-slate-600'}`}>
+                            <Sun className="h-4 w-4" /> Terang
+                          </button>
+                          <button type="button" onClick={() => setTheme('dark')} className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-bold transition-colors ${theme === 'dark' ? 'bg-[#1E293B] text-white shadow-sm' : 'text-slate-600'}`}>
+                            <Moon className="h-4 w-4" /> Gelap
+                          </button>
+                        </div>
+                      </div>
+
                       {/* App & System Details */}
                       <div className="bg-white rounded-[20px] p-4 border border-slate-100 space-y-2 text-xs">
                         <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -3077,8 +3087,8 @@ const saveStockInDetailEdit = async () => {
                 <div className="shrink-0 bg-white border-t border-slate-200/80 py-2 px-2 flex justify-around items-center z-20 shadow-[0_-2px_10px_rgba(0,0,0,0.03)]">
                   {[
                     { label: 'Beranda' as const, icon: Home },
-                    { label: 'Stok Masuk' as const, tab: 'Transaksi' as const, icon: ArrowDownLeft },
-                    { label: 'Stok Keluar' as const, icon: ArrowUpRight },
+                    { label: 'Stok Masuk Bahan' as const, tab: 'Transaksi' as const, icon: ArrowDownLeft },
+                    { label: 'Stok Keluar Produk' as const, tab: 'Stok Keluar' as const, icon: ArrowUpRight },
                     { label: 'Kartu Stok' as const, icon: Receipt },
                     { label: 'Akun' as const, icon: User }
                   ].map(tab => {
@@ -3088,14 +3098,14 @@ const saveStockInDetailEdit = async () => {
                       <button
                         key={tab.label}
                         onClick={() => setActiveTab(((tab as any).tab || tab.label) as any)}
-                        className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl transition-all ${
+                        className={`flex min-w-0 flex-1 flex-col items-center gap-1 py-1 px-1.5 rounded-xl transition-all ${
                           isActive
                             ? 'text-[#246BFD] font-bold'
                             : 'text-slate-400 hover:text-slate-600 font-medium'
                         }`}
                       >
                         <IconComp className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
-                        <span className="text-[10px]">{tab.label}</span>
+                        <span className="whitespace-nowrap text-[8px] tracking-tight">{tab.label}</span>
                       </button>
                     );
                   })}
