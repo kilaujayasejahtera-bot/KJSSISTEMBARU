@@ -141,7 +141,7 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   // App state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('Pengguna KJS');
-  const [role, setRole] = useState<'Admin' | 'Karyawan'>('Karyawan');
+  const [role, setRole] = useState('KARYAWAN');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('kjs_inventory_theme') === 'dark' ? 'dark' : 'light');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<'Beranda' | 'Stok' | 'Transaksi' | 'Stok Keluar' | 'Riwayat' | 'Akun' | 'Kartu Stok'>('Beranda');
@@ -400,14 +400,25 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const loadStockInFormData = async () => {
     setIsLoadingFormData(true);
     try {
-      const [materialResults, supplierResult] = await Promise.all([
+      const [materialResults, supplierResult, inventoryResult] = await Promise.all([
         Promise.all(['BAHAN BAKU', 'BAHAN PENGEMAS'].map(category => callKjsApi<MaterialOption[] | { items?: MaterialOption[] }>({ action: 'masterMaterials', category }))),
         callKjsApi<SupplierOption[] | { items?: SupplierOption[] }>({ action: 'masterSuppliers' }),
+        callKjsApi<InventoryApiResponse>({ action: 'inventory' }),
       ]);
       const rawMaterialRows: any[] = materialResults.flatMap((result: any, index: number) => {
         const rows = Array.isArray(result) ? result : (Array.isArray(result?.items) ? result.items : []);
         return rows.map((row: any) => ({ ...row, kategori: row.kategori || row.Kategori || ['BAHAN BAKU', 'BAHAN PENGEMAS'][index] }));
       });
+      const inventoryMaterials = (Array.isArray(inventoryResult?.items) ? inventoryResult.items : [])
+        .filter(item => item.category === 'Bahan Baku' || item.category === 'Bahan Kemasan')
+        .map(item => ({
+          kode: item.sku,
+          nama: item.name,
+          satuan: item.unit,
+          kategori: item.category === 'Bahan Kemasan' ? 'BAHAN PENGEMAS' : 'BAHAN BAKU',
+          status: 'AKTIF',
+        }));
+      rawMaterialRows.push(...inventoryMaterials);
       const rawSupplierRows: any[] = Array.isArray(supplierResult)
         ? supplierResult
         : (Array.isArray((supplierResult as any)?.items) ? (supplierResult as any).items : []);
@@ -439,14 +450,15 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
         }))
         .filter(s => Boolean(s.kode));
 
-      setMaterials(validMaterials);
+      const uniqueMaterials = Array.from(new Map(validMaterials.map(item => [`${item.kategori}:${item.kode}`.toUpperCase(), item])).values());
+      setMaterials(uniqueMaterials);
       setSuppliers(validSuppliers);
 
       // Sinkronkan selectedItemId dengan bahan baku aktif
-      if (validMaterials.length) {
+      if (uniqueMaterials.length) {
         setSelectedItemId(current => {
-          const exists = validMaterials.some(m => m.kode.toUpperCase() === String(current || '').trim().toUpperCase());
-          return exists ? current : validMaterials[0].kode;
+          const exists = uniqueMaterials.some(m => m.kategori?.toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU') && m.kode.toUpperCase() === String(current || '').trim().toUpperCase());
+          return exists ? current : (uniqueMaterials.find(m => m.kategori?.toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU'))?.kode || '');
         });
       }
       if (validSuppliers.length && !trxSupplier) {
@@ -868,7 +880,7 @@ const saveStockInDetailEdit = async () => {
 
       localStorage.setItem(KJS_TOKEN_KEY, result.token);
       setUserName(result.user.nama || result.user.username || username);
-      setRole(String(result.user.role || '').toLowerCase() === 'admin' ? 'Admin' : 'Karyawan');
+      setRole(String(result.user.role || 'KARYAWAN').trim().toUpperCase());
       setIsLoggedIn(true);
       setLoginError('');
       setInputPassword('');
@@ -944,8 +956,8 @@ const saveStockInDetailEdit = async () => {
     }
 
     // Validasi pemilihan bahan baku aktif dari master
-    const chosenMaterial = materials.find(m => m.kode.toUpperCase() === String(selectedItemId || '').trim().toUpperCase())
-      || materials.find(m => m.kode === selectedItemId);
+    const chosenMaterial = materials.find(m => m.kategori?.toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU') && m.kode.toUpperCase() === String(selectedItemId || '').trim().toUpperCase())
+      || materials.find(m => m.kategori?.toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU') && m.kode === selectedItemId);
     const materialCode = chosenMaterial ? chosenMaterial.kode.trim() : String(selectedItemId || '').trim();
 
     if (!materialCode) {
@@ -1142,14 +1154,14 @@ const saveStockInDetailEdit = async () => {
               setTrxResultModal(null);
               if (isSuccess) {
                 if (selectedItemId) {
-                  setStockCardCategory('BAHAN BAKU');
+                  setStockCardCategory(trxMaterialCategory);
                   setStockCardCode(selectedItemId);
                 }
                 setActiveTab('Kartu Stok');
                 void Promise.allSettled([
                   fetchInventoryData(),
                   fetchDashboardData(),
-                  selectedItemId ? loadStockCard(selectedItemId, 'BAHAN BAKU') : Promise.resolve()
+                  selectedItemId ? loadStockCard(selectedItemId, trxMaterialCategory) : Promise.resolve()
                 ]);
               }
             }}
@@ -2552,8 +2564,8 @@ const saveStockInDetailEdit = async () => {
                               </select>
                             </div>
                             <div>
-                              <label className="block text-[11px] font-semibold text-slate-600 mb-1">COA Bahan Baku (opsional, PDF/JPG/PNG/WEBP maks. 8 MB)</label>
-                              <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e => setCoaFile(e.target.files?.[0] || null)} disabled={coaExists} className="w-full text-[10px] file:mr-2 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2" />
+                              <label className="block text-[11px] font-semibold text-slate-600 mb-1">COA {trxMaterialCategory === 'BAHAN PENGEMAS' ? 'Bahan Pengemas' : 'Bahan Baku'} (opsional, PDF/JPG/PNG/WEBP maks. 8 MB)</label>
+                              <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={e => setCoaFile(e.target.files?.[0] || null)} disabled={coaExists} className="w-full text-[10px] file:mr-2 file:rounded-lg file:border file:border-blue-200 file:bg-blue-50 file:px-3 file:py-2 file:font-semibold file:text-blue-800 disabled:opacity-100" />
                               {coaFile && <p className="mt-1 text-[10px] text-slate-600">File dipilih: {coaFile.name}</p>}
                               {coaStatus && <p className={`mt-1 text-[10px] font-semibold ${coaExists ? 'text-emerald-700' : 'text-amber-700'}`}>{coaStatus}</p>}
                               {savedStockInId && coaFile && !coaExists && <button type="button" onClick={uploadCoaToSavedTransaction} disabled={isSavingTransaction} className="mt-2 w-full py-2 rounded-lg bg-blue-600 text-white text-[10px] font-bold disabled:opacity-50">UNGGAH COA KE TRANSAKSI TERSIMPAN</button>}
