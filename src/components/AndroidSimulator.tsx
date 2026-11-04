@@ -130,7 +130,12 @@ interface InventoryApiResponse {
   updatedAt?: string;
 }
 
-export default function AndroidSimulator() {
+type AndroidSimulatorProps = {
+  /** Render only the app screen, without simulator controls or a phone frame. */
+  standalone?: boolean;
+};
+
+export default function AndroidSimulator({ standalone = false }: AndroidSimulatorProps) {
   // App state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('Pengguna KJS');
@@ -151,7 +156,7 @@ export default function AndroidSimulator() {
 
   // Simulator Mode: 'starter' (Matches MainActivity.kt with placeholders and '—') vs 'interactive' (Live Data)
   const [mode, setMode] = useState<'starter' | 'interactive'>('interactive');
-  const [showPhoneFrame, setShowPhoneFrame] = useState(true);
+  const [showPhoneFrame, setShowPhoneFrame] = useState(!standalone);
 
   // Live Inventory & Transactions state
   const [inventory, setInventory] = useState<LiveInventoryItem[]>([]);
@@ -1050,9 +1055,9 @@ const saveStockInDetailEdit = async () => {
         </div>
       </div>
     )}
-    <div className="flex flex-col items-center">
+    <div className={standalone ? 'fixed inset-0 h-[100dvh] w-full overflow-hidden bg-[#F4F7FB]' : 'flex flex-col items-center'}>
       {/* Top simulator toolbar */}
-      <div className="w-full max-w-4xl mb-4 p-3 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+      {!standalone && <div className="w-full max-w-4xl mb-4 p-3 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-[#14263D] flex items-center justify-center text-white">
             <Smartphone className="w-4 h-4" />
@@ -1113,13 +1118,15 @@ const saveStockInDetailEdit = async () => {
             <span className="hidden sm:inline">Reset</span>
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Android Device Mockup */}
-      <div className="w-full flex justify-center items-center">
+      <div className={standalone ? 'h-full w-full' : 'w-full flex justify-center items-center'}>
         <div
           className={`transition-all duration-300 mx-auto ${
-            showPhoneFrame
+            standalone
+              ? 'h-full w-full max-w-none rounded-none border-0 shadow-none'
+              : showPhoneFrame
               ? 'relative w-full max-w-[390px] h-[780px] bg-slate-900 rounded-[48px] p-3 shadow-2xl border-[6px] border-slate-800'
               : 'relative w-full max-w-[420px] h-[740px] rounded-2xl shadow-xl overflow-hidden border border-slate-200'
           }`}
@@ -1139,7 +1146,7 @@ const saveStockInDetailEdit = async () => {
           )}
 
           {/* Screen container */}
-          <div className="w-full h-full bg-[#F4F7FB] overflow-hidden flex flex-col rounded-[36px] relative text-[#1E293B]">
+          <div className={`w-full h-full bg-[#F4F7FB] overflow-hidden flex flex-col ${standalone ? 'rounded-none' : 'rounded-[36px]'} relative text-[#1E293B]`}>
             {/* Android Status Bar */}
             <div className="h-9 px-6 pt-2 pb-1 flex items-center justify-between text-[11px] font-semibold text-slate-600 bg-transparent z-20 select-none shrink-0">
               <span>09:41</span>
