@@ -140,6 +140,7 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('Pengguna KJS');
   const [role, setRole] = useState<'Admin' | 'Karyawan'>('Karyawan');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<'Beranda' | 'Stok' | 'Transaksi' | 'Stok Keluar' | 'Riwayat' | 'Akun' | 'Kartu Stok'>('Beranda');
   
   // Login form
@@ -373,6 +374,7 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
         qty,
         tujuan: productOutTujuan.trim() || 'Reseller JP',
         keterangan: productOutNotes.trim(),
+        petugas: userName,
       };
       const result = await callKjsApi<any>({ action: 'saveFinishedProductOut', data, payload: data, ...data });
       if (result?.success === false) throw new Error(result.message || 'Gagal menyimpan stok keluar.');
@@ -879,8 +881,10 @@ const saveStockInDetailEdit = async () => {
     }
   };
 
-  const handleLogout = async () => {
-    if (!window.confirm('Apakah Anda yakin ingin keluar dari aplikasi?')) return;
+  const handleLogout = () => setShowLogoutConfirm(true);
+
+  const confirmLogout = async () => {
+    setShowLogoutConfirm(false);
     const token = localStorage.getItem(KJS_TOKEN_KEY);
     try {
       if (token) {
@@ -1083,6 +1087,20 @@ const saveStockInDetailEdit = async () => {
 
   return (
     <>
+    {showLogoutConfirm && (
+      <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/55 p-5" role="dialog" aria-modal="true" aria-labelledby="logout-confirm-title">
+        <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h3 id="logout-confirm-title" className="text-lg font-bold text-slate-900">Keluar dari aplikasi?</h3>
+            <p className="mt-1 text-sm leading-5 text-slate-600">Anda perlu masuk kembali untuk membuka data persediaan.</p>
+          </div>
+          <div className="flex gap-3 bg-slate-50 px-5 py-4">
+            <button type="button" autoFocus onClick={() => setShowLogoutConfirm(false)} className="flex-1 rounded-xl border border-slate-300 bg-white py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100">Batal</button>
+            <button type="button" onClick={confirmLogout} className="flex-1 rounded-xl bg-[#1877F2] py-2.5 text-sm font-bold text-white hover:bg-[#166FE5]">Keluar</button>
+          </div>
+        </div>
+      </div>
+    )}
     {(isSavingTransaction || stockInDetailSaving) && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-5" role="status" aria-live="polite">
         <div className="w-full max-w-xs rounded-2xl bg-white p-6 text-center shadow-2xl">
@@ -2613,7 +2631,7 @@ const saveStockInDetailEdit = async () => {
                       {productOutError && (
                         <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-[11px]">
                           <p>{productOutError}</p>
-                          <p className="mt-1 text-rose-700">Fitur ini memakai endpoint AndroidApi.gs: availableProductBatches, currentProductStock, dan saveFinishedProductOut.</p>
+                          <p className="mt-1 text-rose-700">Periksa kembali koneksi dan deployment Apps Script, lalu coba muat data produk lagi.</p>
                           <button type="button" onClick={() => productOutProductId && loadProductOutAvailability(productOutProductId)} className="mt-2 rounded-lg bg-rose-600 px-3 py-1.5 font-bold text-white">Coba lagi</button>
                         </div>
                       )}
