@@ -211,6 +211,7 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [dashboardMaterialCategory, setDashboardMaterialCategory] = useState<'BAHAN BAKU' | 'BAHAN PENGEMAS'>('BAHAN BAKU');
   const [trxMaterialCategory, setTrxMaterialCategory] = useState<'BAHAN BAKU' | 'BAHAN PENGEMAS'>('BAHAN BAKU');
   const [dashboardSubSearch, setDashboardSubSearch] = useState('');
+  const [produkSortMode, setProdukSortMode] = useState<'stock-asc' | 'stock-desc' | 'name-asc' | 'name-desc' | 'sku-asc' | 'sku-desc' | 'stock-zero' | 'stock-available'>('stock-asc');
   const [selectedDashboardItemHistory, setSelectedDashboardItemHistory] = useState<{ item: any; category: 'BAHAN BAKU' | 'BAHAN PENGEMAS' | 'PRODUK JADI' } | null>(null);
   const [selectedSupplierDetail, setSelectedSupplierDetail] = useState<SupplierOption | null>(null);
 
@@ -1511,25 +1512,47 @@ const saveStockInDetailEdit = async () => {
                           </div>
 
                           {/* Search bar */}
-                          <div className="relative">
-                            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-                            <input
-                              type="text"
-                              value={dashboardSubSearch}
-                              onChange={e => setDashboardSubSearch(e.target.value)}
-                              placeholder={
-                                dashboardSubView === 'bahan'
-                                  ? 'Cari kode atau nama bahan...'
-                                  : dashboardSubView === 'produk'
-                                  ? 'Cari kode atau nama produk...'
-                                  : 'Cari nama atau kode supplier...'
-                              }
-                              className="w-full pl-9 pr-8 py-2.5 bg-white rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#246BFD] shadow-xs"
-                            />
-                            {dashboardSubSearch && (
-                              <button onClick={() => setDashboardSubSearch('')} className="absolute right-3 top-3 text-slate-400 hover:text-slate-600">
-                                <X className="w-3.5 h-3.5" />
-                              </button>
+                          <div className={dashboardSubView === 'produk' ? 'flex flex-col sm:flex-row gap-2' : ''}>
+                            <div className="relative flex-1 min-w-0">
+                              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                              <input
+                                type="text"
+                                value={dashboardSubSearch}
+                                onChange={e => setDashboardSubSearch(e.target.value)}
+                                placeholder={
+                                  dashboardSubView === 'bahan'
+                                    ? 'Cari kode atau nama bahan...'
+                                    : dashboardSubView === 'produk'
+                                    ? 'Cari kode atau nama produk...'
+                                    : 'Cari nama atau kode supplier...'
+                                }
+                                className="w-full pl-9 pr-8 py-2.5 bg-white rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#246BFD] shadow-xs"
+                              />
+                              {dashboardSubSearch && (
+                                <button type="button" onClick={() => setDashboardSubSearch('')} className="absolute right-3 top-3 text-slate-400 hover:text-slate-600">
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                            {dashboardSubView === 'produk' && (
+                              <div className="relative sm:w-64 shrink-0">
+                                <SlidersHorizontal className="w-4 h-4 absolute left-3 top-3 text-slate-400 pointer-events-none" />
+                                <select
+                                  value={produkSortMode}
+                                  onChange={e => setProdukSortMode(e.target.value as typeof produkSortMode)}
+                                  aria-label="Urutkan daftar produk jadi"
+                                  className="w-full appearance-none pl-9 pr-3 py-2.5 bg-white rounded-xl border border-slate-200 text-xs text-slate-700 focus:outline-none focus:border-[#246BFD] shadow-xs"
+                                >
+                                  <option value="stock-asc">Stok terendah → tertinggi</option>
+                                  <option value="stock-desc">Stok tertinggi → terendah</option>
+                                  <option value="name-asc">Nama produk A → Z</option>
+                                  <option value="name-desc">Nama produk Z → A</option>
+                                  <option value="sku-asc">Kode produk A → Z</option>
+                                  <option value="sku-desc">Kode produk Z → A</option>
+                                  <option value="stock-zero">Hanya stok kosong (0)</option>
+                                  <option value="stock-available">Hanya stok tersedia (&gt; 0)</option>
+                                </select>
+                              </div>
                             )}
                           </div>
 
@@ -1617,8 +1640,37 @@ const saveStockInDetailEdit = async () => {
                             const produkList = inventory.filter(item => {
                               const cat = String(item.category || '').toUpperCase();
                               const isProduk = cat.includes('PRODUK') || cat.includes('JADI');
-                              const match = !q || item.name.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q);
-                              return isProduk && match;
+                              const nama = String(item.name || '');
+                              const kode = String(item.sku || '');
+                              const match = !q || nama.toLowerCase().includes(q) || kode.toLowerCase().includes(q);
+                              const stok = Number(item.stock ?? 0);
+                              const matchStok = produkSortMode === 'stock-zero'
+                                ? stok <= 0
+                                : produkSortMode === 'stock-available'
+                                ? stok > 0
+                                : true;
+                              return isProduk && match && matchStok;
+                            }).sort((a, b) => {
+                              const stokA = Number(a.stock ?? 0);
+                              const stokB = Number(b.stock ?? 0);
+                              switch (produkSortMode) {
+                                case 'stock-asc':
+                                case 'stock-zero':
+                                  return stokA - stokB || String(a.name || '').localeCompare(String(b.name || ''), 'id');
+                                case 'stock-desc':
+                                case 'stock-available':
+                                  return stokB - stokA || String(a.name || '').localeCompare(String(b.name || ''), 'id');
+                                case 'name-asc':
+                                  return String(a.name || '').localeCompare(String(b.name || ''), 'id');
+                                case 'name-desc':
+                                  return String(b.name || '').localeCompare(String(a.name || ''), 'id');
+                                case 'sku-asc':
+                                  return String(a.sku || '').localeCompare(String(b.sku || ''), 'id', { numeric: true, sensitivity: 'base' });
+                                case 'sku-desc':
+                                  return String(b.sku || '').localeCompare(String(a.sku || ''), 'id', { numeric: true, sensitivity: 'base' });
+                                default:
+                                  return 0;
+                              }
                             });
 
                             if (isLoadingInventory && inventory.length === 0) {
