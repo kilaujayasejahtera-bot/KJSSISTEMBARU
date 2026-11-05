@@ -46,7 +46,13 @@ class MainActivity : ComponentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    tampilkanKonfirmasiKeluar()
+    android.widget.Toast.makeText(
+        this@MainActivity,
+        "BACK KJS TERDETEKSI",
+        android.widget.Toast.LENGTH_LONG
+    ).show()
+
+    tampilkanKonfirmasiKeluar()
                 }
             }
         )
