@@ -843,6 +843,7 @@ const saveStockInDetailEdit = async () => {
         qty: Number(stockInEdit.qty),
         hargaPembelian: Number(stockInEdit.hargaPembelian),
         ongkosKirim: Number(stockInEdit.ongkosKirim || 0),
+        totalBiaya: Number(stockInEdit.hargaPembelian || 0) + Number(stockInEdit.ongkosKirim || 0),
         qc: stockInEdit.qc
       }
     });
@@ -2922,6 +2923,13 @@ const saveStockInDetailEdit = async () => {
                           <label className="block text-[11px] font-semibold text-slate-600">Jumlah ({stockInEdit.satuan || 'satuan'})<input type="number" min="0.001" step="any" value={stockInEdit.qty ?? ''} onChange={e=>setStockInEdit({...stockInEdit,qty:e.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-xs" /></label>
                           <label className="block text-[11px] font-semibold text-slate-600">Harga pembelian (Rp)<input type="number" min="1" step="1" value={stockInEdit.hargaPembelian ?? ''} onChange={e=>setStockInEdit({...stockInEdit,hargaPembelian:e.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-xs" /></label>
                           <label className="block text-[11px] font-semibold text-slate-600">Ongkos kirim (Rp)<input type="number" min="0" step="1" value={stockInEdit.ongkosKirim ?? 0} onChange={e=>setStockInEdit({...stockInEdit,ongkosKirim:e.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-xs" /></label>
+                          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+                            <p className="text-[11px] font-semibold text-blue-800">Total Biaya (Rp)</p>
+                            <p className="mt-1 text-base font-black text-blue-900">
+                              {(Number(stockInEdit.hargaPembelian || 0) + Number(stockInEdit.ongkosKirim || 0)).toLocaleString('id-ID')}
+                            </p>
+                            <p className="mt-1 text-[10px] text-blue-700">Harga pembelian + ongkos kirim</p>
+                          </div>
                           <label className="block text-[11px] font-semibold text-slate-600">Status QC<select value={stockInEdit.qc || 'LOLOS'} onChange={e=>setStockInEdit({...stockInEdit,qc:e.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-xs"><option>LOLOS</option><option>KARANTINA</option><option>DITOLAK</option></select></label>
                           <button type="button" onClick={saveStockInDetailEdit} disabled={stockInDetailSaving} className="w-full rounded-xl bg-blue-600 p-3 text-xs font-bold text-white disabled:opacity-50 hover:bg-blue-700 transition-colors">{stockInDetailSaving ? 'MENYIMPAN...' : 'SIMPAN PERUBAHAN'}</button>
                           {stockCardCategory === 'BAHAN BAKU' && (
