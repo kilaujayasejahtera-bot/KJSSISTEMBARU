@@ -100,6 +100,18 @@ interface DashboardApiResponse {
 
 type LiveInventoryItem = InventoryItem & { stockError?: string };
 
+const isPackagingMaterialCategory = (value: unknown) => {
+  const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return normalized.includes('PENGEMAS') || normalized.includes('KEMAS') || normalized.includes('PACK');
+};
+
+const isMaterialInCategory = (value: unknown, category: 'BAHAN BAKU' | 'BAHAN PENGEMAS') => {
+  const normalized = String(value || '').toUpperCase();
+  return category === 'BAHAN PENGEMAS'
+    ? isPackagingMaterialCategory(normalized)
+    : normalized.includes('BAKU') || normalized.includes('RAW');
+};
+
 interface MaterialOption { kode: string; nama: string; satuan: string; kategori?: string; density?: number | string; }
 interface SupplierOption {
   kode: string;
@@ -409,11 +421,18 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const loadStockInFormData = async () => {
     setIsLoadingFormData(true);
     try {
-      const [materialResults, supplierResult, inventoryResult] = await Promise.all([
-        Promise.all(['BAHAN BAKU', 'BAHAN PENGEMAS'].map(category => callKjsApi<MaterialOption[] | { items?: MaterialOption[] }>({ action: 'masterMaterials', category }))),
+      const [materialSettled, supplierSettled, inventorySettled] = await Promise.allSettled([
+        Promise.allSettled(['BAHAN BAKU', 'BAHAN PENGEMAS'].map(category => callKjsApi<MaterialOption[] | { items?: MaterialOption[] }>({ action: 'masterMaterials', category }))),
         callKjsApi<SupplierOption[] | { items?: SupplierOption[] }>({ action: 'masterSuppliers' }),
         callKjsApi<InventoryApiResponse>({ action: 'inventory' }),
       ]);
+      const materialResults = materialSettled.status === 'fulfilled'
+        ? materialSettled.value.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
+        : [];
+      const supplierResult = supplierSettled.status === 'fulfilled' ? supplierSettled.value : { items: [] };
+      const inventoryResult = inventorySettled.status === 'fulfilled' ? inventorySettled.value : null;
+      const supplierError = supplierSettled.status === 'rejected' ? supplierSettled.reason : null;
+      const inventoryError = inventorySettled.status === 'rejected' ? inventorySettled.reason : null;
       const rawMaterialRows: any[] = materialResults.flatMap((result: any, index: number) => {
         const rows = Array.isArray(result) ? result : (Array.isArray(result?.items) ? result.items : []);
         return rows.map((row: any) => ({ ...row, kategori: row.kategori || row.Kategori || ['BAHAN BAKU', 'BAHAN PENGEMAS'][index] }));
@@ -466,12 +485,21 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
       // Sinkronkan selectedItemId dengan bahan baku aktif
       if (uniqueMaterials.length) {
         setSelectedItemId(current => {
-          const exists = uniqueMaterials.some(m => m.kategori?.toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU') && m.kode.toUpperCase() === String(current || '').trim().toUpperCase());
-          return exists ? current : (uniqueMaterials.find(m => m.kategori?.toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU'))?.kode || '');
+          const exists = uniqueMaterials.some(m => isMaterialInCategory(m.kategori, trxMaterialCategory) && m.kode.toUpperCase() === String(current || '').trim().toUpperCase());
+          return exists ? current : (uniqueMaterials.find(m => isMaterialInCategory(m.kategori, trxMaterialCategory))?.kode || '');
         });
       }
       if (validSuppliers.length && !trxSupplier) {
         setTrxSupplier(validSuppliers[0].kode);
+      }
+      if (supplierError && !inventoryError && uniqueMaterials.length) {
+        setTrxSuccessMessage('Daftar bahan berhasil dimuat. Daftar supplier belum tersedia.');
+      } else if (supplierError && inventoryError && !uniqueMaterials.length) {
+        const supplierMessage = supplierError instanceof Error ? supplierError.message : 'supplier tidak tersedia';
+        const inventoryMessage = inventoryError instanceof Error ? inventoryError.message : 'data bahan tidak tersedia';
+        setTrxSuccessMessage('Gagal memuat master bahan: ' + inventoryMessage + ' (' + supplierMessage + ').');
+      } else if (inventoryError && !uniqueMaterials.length) {
+        setTrxSuccessMessage('Gagal memuat daftar bahan. Periksa API master bahan.');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Gagal memuat master bahan/supplier.';
@@ -1001,8 +1029,8 @@ const saveStockInDetailEdit = async () => {
     }
 
     // Validasi pemilihan bahan baku aktif dari master
-    const chosenMaterial = materials.find(m => m.kategori?.toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU') && m.kode.toUpperCase() === String(selectedItemId || '').trim().toUpperCase())
-      || materials.find(m => m.kategori?.toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU') && m.kode === selectedItemId);
+    const chosenMaterial = materials.find(m => isMaterialInCategory(m.kategori, trxMaterialCategory) && m.kode.toUpperCase() === String(selectedItemId || '').trim().toUpperCase())
+      || materials.find(m => isMaterialInCategory(m.kategori, trxMaterialCategory) && m.kode === selectedItemId);
     const materialCode = chosenMaterial ? chosenMaterial.kode.trim() : String(selectedItemId || '').trim();
 
     if (!materialCode) {
@@ -1509,9 +1537,7 @@ const saveStockInDetailEdit = async () => {
                             const q = dashboardSubSearch.toLowerCase().trim();
                             const bahanList = inventory.filter(item => {
                               const cat = String(item.category || '').toUpperCase();
-                              const isBahan = dashboardMaterialCategory === 'BAHAN PENGEMAS'
-                                ? cat.includes('KEMAS')
-                                : (cat.includes('BAHAN BAKU') || cat === 'BAHAN' || (!cat.includes('KEMAS') && !cat.includes('PRODUK')));
+                              const isBahan = isMaterialInCategory(cat, dashboardMaterialCategory);
                               const match = !q || item.name.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q);
                               return isBahan && match;
                             });
@@ -2292,9 +2318,9 @@ const saveStockInDetailEdit = async () => {
                           {inventory.filter(item => {
                             const cat = String(item.category || '').toUpperCase();
                             if (stockCardCategory === 'BAHAN BAKU') {
-                              return cat.includes('BAHAN BAKU') || cat === 'BAHAN' || (!cat.includes('KEMAS') && !cat.includes('PRODUK'));
+                              return isMaterialInCategory(cat, 'BAHAN BAKU');
                             } else if (stockCardCategory === 'BAHAN PENGEMAS') {
-                              return cat.includes('KEMAS') || cat.includes('PENGEMAS');
+                              return isMaterialInCategory(cat, 'BAHAN PENGEMAS');
                             } else {
                               return cat.includes('PRODUK') || cat.includes('JADI');
                             }
@@ -2563,10 +2589,10 @@ const saveStockInDetailEdit = async () => {
                                 disabled={isLoadingFormData}
                                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:border-[#246BFD]"
                               >
-                                {materials.filter(item => String(item.kategori || '').toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU')).length === 0 ? (
+                                {materials.filter(item => isMaterialInCategory(item.kategori, trxMaterialCategory)).length === 0 ? (
                                   <option value="">{isLoadingFormData ? 'Memuat bahan dari Google Sheets...' : 'Tidak ada bahan aktif'}</option>
                                 ) : (
-                                  materials.filter(item => String(item.kategori || '').toUpperCase().includes(trxMaterialCategory === 'BAHAN PENGEMAS' ? 'KEMAS' : 'BAKU')).map(item => (
+                                  materials.filter(item => isMaterialInCategory(item.kategori, trxMaterialCategory)).map(item => (
                                     <option key={item.kode} value={item.kode}>[{item.kode}] {item.nama}</option>
                                   ))
                                 )}
@@ -2783,7 +2809,7 @@ const saveStockInDetailEdit = async () => {
                       {receiptError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{receiptError}</div>}
                       {receiptLoading ? (
                         <div className="rounded-xl bg-white p-8 text-center text-xs text-slate-500">Memuat catatan penerimaan...</div>
-                      ) : visibleReceiptRecords.length ? (
+                      ) : receiptError ? null : visibleReceiptRecords.length ? (
                         <div className="space-y-2 pb-4">
                           {visibleReceiptRecords.map(row => (
                             <article key={row.id} className="rounded-2xl border border-slate-100 bg-white p-3 shadow-xs">
@@ -3134,10 +3160,6 @@ const saveStockInDetailEdit = async () => {
               </div>
             )}
 
-            {/* Android Home Navigation Gesture Bar */}
-            <div className={`h-4 w-full flex items-center justify-center pb-1 shrink-0 ${isLoggedIn ? 'bg-white' : 'bg-[#F4F7FB]'}`}>
-              <div className="w-24 h-1 bg-slate-300 rounded-full" />
-            </div>
           </div>
         </div>
       </div>
