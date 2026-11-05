@@ -1,6 +1,7 @@
 
 package com.kjs.inventory
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -14,8 +15,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -29,7 +30,9 @@ class MainActivity : ComponentActivity() {
 
     private val filePicker =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            fileChooserCallback?.onReceiveValue(uri?.let { arrayOf(it) })
+            fileChooserCallback?.onReceiveValue(
+                uri?.let { arrayOf(it) }
+            )
             fileChooserCallback = null
         }
 
@@ -38,34 +41,12 @@ class MainActivity : ComponentActivity() {
 
         hideSystemBars()
 
-        // Handler tombol Back Android.
+        // KONFIRMASI SAAT TOMBOL BACK ANDROID DITEKAN
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    if (!::webView.isInitialized) {
-                        return
-                    }
-
-                    // Prioritaskan riwayat navigasi WebView.
-                    if (webView.canGoBack()) {
-                        webView.goBack()
-                    } else {
-                        // Jangan langsung menutup aplikasi.
-                        // Beri event Back kepada halaman React.
-                        webView.evaluateJavascript(
-                            """
-                            (function() {
-                                window.dispatchEvent(
-                                    new PopStateEvent('popstate', {
-                                        state: { androidBack: true }
-                                    })
-                                );
-                            })();
-                            """.trimIndent(),
-                            null
-                        )
-                    }
+                    tampilkanKonfirmasiKeluar()
                 }
             }
         )
@@ -80,6 +61,22 @@ class MainActivity : ComponentActivity() {
                 }
             )
         }
+    }
+
+    private fun tampilkanKonfirmasiKeluar() {
+        AlertDialog.Builder(this)
+            .setTitle("Keluar dari aplikasi?")
+            .setMessage(
+                "Apakah Anda yakin ingin keluar dari aplikasi KJS Inventory?"
+            )
+            .setNegativeButton("Batal") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setPositiveButton("Ya, Keluar") { _, _ ->
+                finish()
+            }
+            .setCancelable(true)
+            .show()
     }
 
     @Suppress("DEPRECATION")
@@ -112,7 +109,6 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 WebView(context).apply {
-
                     webView = this
 
                     settings.javaScriptEnabled = true
@@ -128,12 +124,10 @@ class MainActivity : ComponentActivity() {
                         .setAcceptThirdPartyCookies(this, true)
 
                     webViewClient = object : WebViewClient() {
-
                         override fun shouldOverrideUrlLoading(
                             view: WebView,
                             request: WebResourceRequest
                         ): Boolean {
-
                             val uri = request.url
 
                             if (uri.host == "kilaujayasejahtera-bot.github.io") {
@@ -143,19 +137,16 @@ class MainActivity : ComponentActivity() {
                             startActivity(
                                 Intent(Intent.ACTION_VIEW, uri)
                             )
-
                             return true
                         }
                     }
 
                     webChromeClient = object : WebChromeClient() {
-
                         override fun onShowFileChooser(
                             view: WebView,
                             callback: ValueCallback<Array<Uri>>,
                             fileChooserParams: FileChooserParams
                         ): Boolean {
-
                             onChooseFile(callback)
                             return true
                         }
@@ -183,4 +174,3 @@ class MainActivity : ComponentActivity() {
             "https://kilaujayasejahtera-bot.github.io/KJSSISTEMBARU/app.html"
     }
 }
-
