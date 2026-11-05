@@ -1700,7 +1700,9 @@ const saveStockInDetailEdit = async () => {
                                     key={item.id || item.sku}
                                     onClick={() => {
                                       setSelectedDashboardItemHistory({ item, category: 'PRODUK JADI' });
-                                      loadStockCard(item.sku, 'PRODUK JADI');
+                                      // Produk jadi harus mengirim ID inventory PRODUK:kode:kemasan,
+                                      // bukan SKU gabungan (mis. MSS01-60 ml).
+                                      loadStockCard(item.id || item.sku, 'PRODUK JADI');
                                     }}
                                     className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer group"
                                   >
@@ -3044,7 +3046,11 @@ const saveStockInDetailEdit = async () => {
                             type="button"
                             onClick={() => {
                               setStockCardCategory(selectedDashboardItemHistory.category);
-                              setStockCardCode(selectedDashboardItemHistory.item.sku);
+                              setStockCardCode(
+                                selectedDashboardItemHistory.category === 'PRODUK JADI'
+                                  ? (selectedDashboardItemHistory.item.id || selectedDashboardItemHistory.item.sku)
+                                  : selectedDashboardItemHistory.item.sku
+                              );
                               setActiveTab('Kartu Stok');
                               setSelectedDashboardItemHistory(null);
                               setDashboardSubView(null);
@@ -3076,7 +3082,12 @@ const saveStockInDetailEdit = async () => {
                             <p className="mt-1">{stockCardError}</p>
                             <button
                               type="button"
-                              onClick={() => loadStockCard(selectedDashboardItemHistory.item.sku, selectedDashboardItemHistory.category)}
+                              onClick={() => loadStockCard(
+                                selectedDashboardItemHistory.category === 'PRODUK JADI'
+                                  ? (selectedDashboardItemHistory.item.id || selectedDashboardItemHistory.item.sku)
+                                  : selectedDashboardItemHistory.item.sku,
+                                selectedDashboardItemHistory.category
+                              )}
                               className="mt-2 px-3 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold"
                             >
                               Coba lagi
