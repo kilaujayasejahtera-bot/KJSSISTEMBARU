@@ -1,3 +1,4 @@
+
 package com.kjs.inventory
 
 import android.content.Intent
@@ -14,25 +15,60 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 
-/** Native Android shell for the same app-only screen used by the web preview. */
 class MainActivity : ComponentActivity() {
+
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private lateinit var webView: WebView
 
-    private val filePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        fileChooserCallback?.onReceiveValue(uri?.let { arrayOf(it) })
-        fileChooserCallback = null
-    }
+    private val filePicker =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            fileChooserCallback?.onReceiveValue(uri?.let { arrayOf(it) })
+            fileChooserCallback = null
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         hideSystemBars()
+
+        // Handler tombol Back Android.
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (!::webView.isInitialized) {
+                        return
+                    }
+
+                    // Prioritaskan riwayat navigasi WebView.
+                    if (webView.canGoBack()) {
+                        webView.goBack()
+                    } else {
+                        // Jangan langsung menutup aplikasi.
+                        // Beri event Back kepada halaman React.
+                        webView.evaluateJavascript(
+                            """
+                            (function() {
+                                window.dispatchEvent(
+                                    new PopStateEvent('popstate', {
+                                        state: { androidBack: true }
+                                    })
+                                );
+                            })();
+                            """.trimIndent(),
+                            null
+                        )
+                    }
+                }
+            }
+        )
 
         setContent {
             InventoryWebScreen(
@@ -41,7 +77,7 @@ class MainActivity : ComponentActivity() {
                     fileChooserCallback?.onReceiveValue(null)
                     fileChooserCallback = callback
                     filePicker.launch("*/*")
-                },
+                }
             )
         }
     }
@@ -50,8 +86,12 @@ class MainActivity : ComponentActivity() {
     private fun hideSystemBars() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             window.insetsController?.let { controller ->
-                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.hide(
+                    WindowInsets.Type.statusBars() or
+                        WindowInsets.Type.navigationBars()
+                )
+                controller.systemBarsBehavior =
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
         } else {
             window.decorView.systemUiVisibility = (
@@ -66,13 +106,15 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun InventoryWebScreen(
         onWebViewReady: (WebView) -> Unit,
-        onChooseFile: (ValueCallback<Array<Uri>>) -> Unit,
+        onChooseFile: (ValueCallback<Array<Uri>>) -> Unit
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 WebView(context).apply {
+
                     webView = this
+
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.databaseEnabled = true
@@ -80,41 +122,51 @@ class MainActivity : ComponentActivity() {
                     settings.allowContentAccess = true
                     settings.javaScriptCanOpenWindowsAutomatically = false
                     settings.setSupportMultipleWindows(false)
+
                     CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    CookieManager.getInstance()
+                        .setAcceptThirdPartyCookies(this, true)
 
                     webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView,
+                            request: WebResourceRequest
+                        ): Boolean {
+
                             val uri = request.url
-                            if (uri.host == "kilaujayasejahtera-bot.github.io") return false
-                            startActivity(Intent(Intent.ACTION_VIEW, uri))
+
+                            if (uri.host == "kilaujayasejahtera-bot.github.io") {
+                                return false
+                            }
+
+                            startActivity(
+                                Intent(Intent.ACTION_VIEW, uri)
+                            )
+
                             return true
                         }
                     }
+
                     webChromeClient = object : WebChromeClient() {
+
                         override fun onShowFileChooser(
                             view: WebView,
                             callback: ValueCallback<Array<Uri>>,
-                            fileChooserParams: FileChooserParams,
+                            fileChooserParams: FileChooserParams
                         ): Boolean {
+
                             onChooseFile(callback)
                             return true
                         }
                     }
 
                     onWebViewReady(this)
+
                     loadUrl(APP_URL)
                 }
-            },
+            }
         )
-    }
-
-    override fun onBackPressed() {
-        if (::webView.isInitialized && webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            super.onBackPressed()
-        }
     }
 
     override fun onDestroy() {
@@ -122,10 +174,13 @@ class MainActivity : ComponentActivity() {
             webView.stopLoading()
             webView.destroy()
         }
+
         super.onDestroy()
     }
 
     companion object {
-        private const val APP_URL = "https://kilaujayasejahtera-bot.github.io/KJSSISTEMBARU/app.html"
+        private const val APP_URL =
+            "https://kilaujayasejahtera-bot.github.io/KJSSISTEMBARU/app.html"
     }
 }
+
