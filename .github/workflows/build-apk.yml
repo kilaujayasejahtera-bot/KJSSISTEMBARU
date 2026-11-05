@@ -1,39 +1,80 @@
-name: Build Android APK (KJS Inventory)
+name: Build KJS Inventory APK
 
 on:
   push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch: # Memungkinkan tombol "Run workflow" langsung di web GitHub
+    branches: [main, master]
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Build APK (Debug)
+    name: Build APK KJS
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Source Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
+          distribution: temurin
+          java-version: 17
 
-      - name: Berikan Izin Eksekusi Gradle Wrapper
-        run: chmod +x android_starter/gradlew
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
 
-      - name: Build APK dengan Gradle
+      - name: Install Capacitor
         run: |
-          cd android_starter
+          npm install --no-save \
+            @capacitor/core@6.2.1 \
+            @capacitor/android@6.2.1 \
+            @capacitor/cli@6.2.1
+
+      - name: Build Web Application
+        run: npm run build
+
+      - name: Prepare Capacitor Configuration
+        run: |
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.kjs.inventory",
+            "appName": "KJS Inventory",
+            "webDir": "dist",
+            "server": {
+              "url": "https://kilaujayasejahtera-bot.github.io/KJSSISTEMBARU/app.html",
+              "cleartext": false
+            }
+          }
+          EOF
+
+      - name: Create Android Project
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build Android APK
+        run: |
+          cd android
+          chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Upload File APK sebagai Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: KJS-Inventory-App-Debug
-          path: android_starter/app/build/outputs/apk/debug/*.apk
+          name: KJS-Inventory-APK
+          path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 14
