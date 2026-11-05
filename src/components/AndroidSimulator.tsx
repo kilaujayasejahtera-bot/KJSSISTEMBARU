@@ -36,7 +36,7 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
-import type { InventoryItem, InventoryTransaction } from '../data/mockInventory';
+import type { InventoryItem } from '../data/mockInventory';
 
 // URL Web App Apps Script KJS yang sudah ada.
 const KJS_API_URL = 'https://script.google.com/macros/s/AKfycbw3lXRWrfVcvdNwQhfUOtUkaPY-62z3oq9Ykhfxvm5VsqfGsbny8WH4rkpz8Oj-535x/exec';
@@ -113,6 +113,7 @@ interface SupplierOption {
 }
 interface StockInApiResponse { success?: boolean; message?: string; data?: { id?: string; kodeBahan?: string; namaBahan?: string; batch?: string }; }
 interface BatchCoaStatus { success?: boolean; exists?: boolean; documents?: Array<{ namaFile?: string; urlFile?: string; idStokMasuk?: string }>; message?: string; }
+interface ReceiptRecord { id: string; tanggal: string; kodeBahan: string; namaBahan: string; batch: string; expiredDate: string; qty: number; satuan: string; supplier: string; qc: string; petugas: string; kategori: string; }
 
 interface InventoryApiResponse {
   success?: boolean;
@@ -144,7 +145,7 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [role, setRole] = useState('KARYAWAN');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('kjs_inventory_theme') === 'dark' ? 'dark' : 'light');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [activeTab, setActiveTab] = useState<'Beranda' | 'Stok' | 'Transaksi' | 'Stok Keluar' | 'Riwayat' | 'Akun' | 'Kartu Stok'>('Beranda');
+  const [activeTab, setActiveTab] = useState<'Beranda' | 'Stok' | 'Transaksi' | 'Stok Keluar' | 'Catatan Penerimaan' | 'Akun' | 'Kartu Stok'>('Beranda');
   
   // Login form
   const [inputUsername, setInputUsername] = useState('');
@@ -171,7 +172,15 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [isLoadingInventory, setIsLoadingInventory] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [inventoryUpdatedAt, setInventoryUpdatedAt] = useState<string | null>(null);
-  const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
+  const [receiptCategory, setReceiptCategory] = useState<'BAHAN BAKU' | 'BAHAN PENGEMAS'>('BAHAN BAKU');
+  const [receiptRecords, setReceiptRecords] = useState<ReceiptRecord[]>([]);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
+  const [receiptSearch, setReceiptSearch] = useState('');
+  const [receiptDateFrom, setReceiptDateFrom] = useState('');
+  const [receiptDateTo, setReceiptDateTo] = useState('');
+  const [receiptQcFilter, setReceiptQcFilter] = useState('Semua QC');
+  const [receiptSupplierFilter, setReceiptSupplierFilter] = useState('Semua supplier');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'Semua' | 'Bahan Baku' | 'Bahan Kemasan' | 'Produk Jadi'>('Semua');
 
@@ -689,6 +698,43 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
 
   const loadMaterialStockCard = loadStockCard;
 
+  const loadReceiptRecords = async (category = receiptCategory) => {
+    const token = localStorage.getItem(KJS_TOKEN_KEY);
+    if (!token) return;
+    setReceiptLoading(true);
+    setReceiptError('');
+    try {
+      const result = await callKjsApi<any>({ action: 'getStockInRecords', token, category });
+      if (!result || result.success === false) throw new Error(result?.message || 'Catatan penerimaan gagal dimuat.');
+      const rows = Array.isArray(result.items) ? result.items : Array.isArray(result.data) ? result.data : [];
+      setReceiptRecords(rows);
+    } catch (error) {
+      setReceiptRecords([]);
+      setReceiptError(error instanceof Error ? error.message : 'Catatan penerimaan gagal dimuat.');
+    } finally {
+      setReceiptLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn && activeTab === 'Catatan Penerimaan') loadReceiptRecords(receiptCategory);
+  }, [isLoggedIn, activeTab, receiptCategory]);
+
+  const visibleReceiptRecords = receiptRecords.filter(row => {
+    const date = String(row.tanggal || '').slice(0, 10);
+    const query = receiptSearch.trim().toLowerCase();
+    const searchable = [row.kodeBahan, row.namaBahan, row.batch, row.supplier, row.petugas, row.qc].join(' ').toLowerCase();
+    if (query && !searchable.includes(query)) return false;
+    if (receiptDateFrom && date && date < receiptDateFrom) return false;
+    if (receiptDateTo && date && date > receiptDateTo) return false;
+    if (receiptQcFilter !== 'Semua QC' && row.qc !== receiptQcFilter) return false;
+    if (receiptSupplierFilter !== 'Semua supplier' && row.supplier !== receiptSupplierFilter) return false;
+    return true;
+  });
+  const receiptSuppliers = Array.from(new Set(receiptRecords.map(row => row.supplier).filter(Boolean))).sort();
+  const receiptQcStatuses = Array.from(new Set(receiptRecords.map(row => row.qc).filter(Boolean))).sort();
+  const receiptTotalQty = visibleReceiptRecords.reduce((total, row) => total + Number(row.qty || 0), 0);
+
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Kartu Stok' && stockCardCode) {
       loadMaterialStockCard(stockCardCode, stockCardCategory);
@@ -938,7 +984,6 @@ const saveStockInDetailEdit = async () => {
     setDashboardData(null);
     setDashboardError(null);
     setInventory([]);
-    setTransactions([]);
     setInventoryUpdatedAt(null);
     setInventoryError(null);
     setTrxSuccessMessage(null);
@@ -2012,9 +2057,9 @@ const saveStockInDetailEdit = async () => {
                             <ChevronRight className="w-4 h-4 text-slate-400" />
                           </button>
 
-                          {/* Quick 3: Riwayat Transaksi */}
+                          {/* Quick 3: Catatan Penerimaan Bahan */}
                           <button
-                            onClick={() => setActiveTab('Riwayat')}
+                            onClick={() => setActiveTab('Catatan Penerimaan')}
                             className="w-full bg-white p-3.5 rounded-[16px] border border-slate-100 flex items-center justify-between text-left hover:border-blue-200 transition-colors shadow-xs"
                           >
                             <div className="flex items-center gap-3">
@@ -2023,10 +2068,10 @@ const saveStockInDetailEdit = async () => {
                               </div>
                               <div>
                                 <div className="text-[13px] font-semibold text-[#1E293B]">
-                                  Riwayat transaksi
+                                  Catatan Penerimaan Bahan
                                 </div>
                                 <div className="text-[11px] text-[#64748B]">
-                                  Lihat aktivitas terbaru
+                                  Bahan baku dan bahan pengemas
                                 </div>
                               </div>
                             </div>
@@ -2702,97 +2747,61 @@ const saveStockInDetailEdit = async () => {
                     </div>
                   )}
 
-                  {/* TAB 4: RIWAYAT */}
-                  {activeTab === 'Riwayat' && (
-                    <div>
-                      {mode === 'starter' ? (
-                        /* Exact PlaceholderScreen from MainActivity.kt */
-                        <div className="flex flex-col items-center justify-center py-20 text-center px-4">
-                          <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center text-[#246BFD] mb-4">
-                            <Wrench className="w-8 h-8" />
-                          </div>
-                          <h3 className="text-[21px] font-bold text-[#14263D] mb-2">
-                            Riwayat
-                          </h3>
-                          <p className="text-[13px] text-[#64748B] max-w-xs leading-relaxed">
-                            Menu ini akan kita aktifkan bertahap setelah login dan dashboard selesai.
-                          </p>
-                          <button
-                            onClick={() => setMode('interactive')}
-                            className="mt-6 px-4 py-2 bg-[#246BFD] text-white rounded-xl text-xs font-semibold shadow-xs"
-                          >
-                            Buka Daftar Riwayat Transaksi
-                          </button>
+                  {/* CATATAN PENERIMAAN BAHAN */}
+                  {activeTab === 'Catatan Penerimaan' && (
+                    <div className="space-y-3.5">
+                      <div className="sticky -top-5 -mt-5 -mx-5 p-5 pb-3 bg-[#F4F7FB]/95 backdrop-blur-xs z-10 border-b border-slate-200/60 shadow-2xs">
+                        <h3 className="text-[22px] font-bold text-[#14263D]">Catatan Penerimaan Bahan</h3>
+                        <p className="text-[11px] text-[#64748B]">Riwayat penerimaan bahan dari Google Sheets</p>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-100 bg-white p-3 shadow-xs space-y-3">
+                        <label className="block text-[11px] font-bold text-slate-700">Tampilkan kategori</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(['BAHAN BAKU', 'BAHAN PENGEMAS'] as const).map(category => (
+                            <button key={category} type="button" onClick={() => { setReceiptCategory(category); setReceiptSupplierFilter('Semua supplier'); setReceiptQcFilter('Semua QC'); }} className={`rounded-xl px-3 py-2.5 text-[11px] font-bold transition-colors ${receiptCategory === category ? 'bg-[#246BFD] text-white' : 'bg-slate-100 text-slate-700'}`}>
+                              {category === 'BAHAN BAKU' ? 'Bahan Baku' : 'Bahan Pengemas'}
+                            </button>
+                          ))}
+                        </div>
+                        <label className="relative block">
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <input value={receiptSearch} onChange={event => setReceiptSearch(event.target.value)} placeholder="Cari kode, nama, batch, supplier, petugas..." className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-xs text-slate-800 placeholder:text-slate-400" />
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="text-[10px] font-semibold text-slate-600">Dari tanggal<input type="date" value={receiptDateFrom} onChange={event => setReceiptDateFrom(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800" /></label>
+                          <label className="text-[10px] font-semibold text-slate-600">Sampai tanggal<input type="date" value={receiptDateTo} onChange={event => setReceiptDateTo(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800" /></label>
+                          <label className="text-[10px] font-semibold text-slate-600">Status QC<select value={receiptQcFilter} onChange={event => setReceiptQcFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800"><option>Semua QC</option>{receiptQcStatuses.map(status => <option key={status}>{status}</option>)}</select></label>
+                          <label className="text-[10px] font-semibold text-slate-600">Supplier<select value={receiptSupplierFilter} onChange={event => setReceiptSupplierFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800"><option>Semua supplier</option>{receiptSuppliers.map(supplier => <option key={supplier}>{supplier}</option>)}</select></label>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                          <div><p className="text-xs font-bold text-slate-800">{visibleReceiptRecords.length} transaksi ditampilkan</p><p className="text-[10px] text-slate-500">Total qty: {receiptTotalQty.toLocaleString('id-ID', { maximumFractionDigits: 3 })}</p></div>
+                          <button type="button" onClick={() => loadReceiptRecords()} disabled={receiptLoading} className="rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-bold text-slate-700 disabled:opacity-50">{receiptLoading ? 'Memuat…' : 'Muat Ulang'}</button>
+                        </div>
+                      </div>
+
+                      {receiptError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{receiptError}</div>}
+                      {receiptLoading ? (
+                        <div className="rounded-xl bg-white p-8 text-center text-xs text-slate-500">Memuat catatan penerimaan...</div>
+                      ) : visibleReceiptRecords.length ? (
+                        <div className="space-y-2 pb-4">
+                          {visibleReceiptRecords.map(row => (
+                            <article key={row.id} className="rounded-2xl border border-slate-100 bg-white p-3 shadow-xs">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0"><p className="text-[12px] font-bold text-[#1E293B]">{row.namaBahan || row.kodeBahan || 'Bahan'}</p><p className="mt-0.5 font-mono text-[10px] text-slate-500">{row.kodeBahan} {row.batch ? `• Batch ${row.batch}` : ''}</p></div>
+                                <div className="shrink-0 text-right"><p className="text-[13px] font-black text-emerald-700">{Number(row.qty || 0).toLocaleString('id-ID', { maximumFractionDigits: 3 })} {row.satuan}</p><p className="text-[10px] text-slate-500">{row.tanggal || '—'}</p></div>
+                              </div>
+                              <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-2 text-[10px]">
+                                <div><span className="text-slate-400">Expired date</span><p className="font-semibold text-slate-700">{row.expiredDate || '—'}</p></div>
+                                <div><span className="text-slate-400">Supplier</span><p className="font-semibold text-slate-700">{row.supplier || '—'}</p></div>
+                                <div><span className="text-slate-400">Status QC</span><p className="font-semibold text-slate-700">{row.qc || '—'}</p></div>
+                                <div><span className="text-slate-400">Petugas</span><p className="font-semibold text-slate-700">{row.petugas || '—'}</p></div>
+                              </div>
+                            </article>
+                          ))}
                         </div>
                       ) : (
-                        /* Interactive History View */
-                        <div className="space-y-3.5">
-                          <div className="sticky -top-5 -mt-5 -mx-5 p-5 pb-3 bg-[#F4F7FB]/95 backdrop-blur-xs z-10 border-b border-slate-200/60 shadow-2xs">
-                            <h3 className="text-[22px] font-bold text-[#14263D]">
-                              Riwayat Transaksi
-                            </h3>
-                            <p className="text-[11px] text-[#64748B]">
-                              Log pergerakan persediaan masuk dan keluar
-                            </p>
-                          </div>
-
-                          <div className="space-y-2 pt-1 pb-4">
-                            {transactions.map(trx => (
-                              <div
-                                key={trx.id}
-                                className="bg-white p-3 rounded-2xl border border-slate-100 shadow-xs flex items-start justify-between gap-3"
-                              >
-                                <div className="flex items-start gap-2.5">
-                                  <div
-                                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                                      trx.type === 'MASUK'
-                                        ? 'bg-emerald-50 text-emerald-600'
-                                        : 'bg-rose-50 text-rose-600'
-                                    }`}
-                                  >
-                                    {trx.type === 'MASUK' ? (
-                                      <ArrowDownLeft className="w-4 h-4" />
-                                    ) : (
-                                      <ArrowUpRight className="w-4 h-4" />
-                                    )}
-                                  </div>
-                                  <div>
-                                    <div className="flex items-center gap-1.5">
-                                      <span
-                                        className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                                          trx.type === 'MASUK'
-                                            ? 'bg-emerald-100 text-emerald-800'
-                                            : 'bg-rose-100 text-rose-800'
-                                        }`}
-                                      >
-                                        {trx.type}
-                                      </span>
-                                      <span className="text-[10px] text-slate-400 font-mono">
-                                        {trx.date}
-                                      </span>
-                                    </div>
-                                    <h5 className="text-[12px] font-bold text-[#1E293B] mt-0.5">
-                                      {trx.itemName}
-                                    </h5>
-                                    <p className="text-[10px] text-slate-500 line-clamp-1">
-                                      {trx.notes} • PIC: {trx.pic}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <span
-                                    className={`text-[13px] font-black ${
-                                      trx.type === 'MASUK' ? 'text-emerald-600' : 'text-rose-600'
-                                    }`}
-                                  >
-                                    {trx.type === 'MASUK' ? '+' : '-'}{trx.quantity}
-                                  </span>
-                                  <div className="text-[10px] text-slate-400">{trx.unit}</div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-xs text-slate-500">{receiptRecords.length ? 'Tidak ada transaksi yang sesuai filter.' : 'Belum ada catatan penerimaan untuk kategori ini.'}</div>
                       )}
                     </div>
                   )}
