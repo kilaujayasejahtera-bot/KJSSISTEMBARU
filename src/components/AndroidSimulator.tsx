@@ -266,6 +266,88 @@ export default function AndroidSimulator({ standalone = false }: AndroidSimulato
   const [stockInDetailNotice, setStockInDetailNotice] = useState<{type:'success'|'error'; message:string} | null>(null);
   const [closeStockInDetailAfterNotice, setCloseStockInDetailAfterNotice] = useState(false);
 
+
+  // Tombol Back Android/browser: kembali bertahap di dalam aplikasi,
+  // bukan langsung meninggalkan halaman atau menutup aplikasi.
+  useEffect(() => {
+    const addBackEntry = () => {
+      window.history.pushState({ kjsAppBack: true }, '', window.location.href);
+    };
+
+    // Siapkan satu entri riwayat agar tombol Back pertama masuk ke handler aplikasi.
+    addBackEntry();
+
+    const handleAppBack = () => {
+      // Popstate sudah mengonsumsi entri sebelumnya. Tambahkan kembali
+      // sentinel supaya tombol Back berikutnya tetap ditangani aplikasi.
+      addBackEntry();
+
+      if (stockInDetailOpen) {
+        setStockInDetailOpen(false);
+        setStockInDetailNotice(null);
+        setCloseStockInDetailAfterNotice(false);
+        setStockInEdit(null);
+        setStockInDetail(null);
+        setStockInCoaFile(null);
+        setStockInDocuments([]);
+        setStockInDetailSaving(false);
+        return;
+      }
+
+      if (trxResultModal) {
+        setTrxResultModal(null);
+        return;
+      }
+
+      if (showLogoutConfirm) {
+        setShowLogoutConfirm(false);
+        return;
+      }
+
+      if (selectedDashboardItemHistory) {
+        setSelectedDashboardItemHistory(null);
+        return;
+      }
+
+      if (selectedSupplierDetail) {
+        setSelectedSupplierDetail(null);
+        return;
+      }
+
+      if (dashboardSubView) {
+        setDashboardSubView(null);
+        setDashboardSubSearch('');
+        return;
+      }
+
+      if (activeTab !== 'Beranda') {
+        setActiveTab('Beranda');
+        return;
+      }
+
+      // Di halaman utama, jangan logout otomatis dan jangan paksa tutup tab.
+      // Tampilkan dialog konfirmasi keluar yang sudah tersedia di aplikasi.
+      if (isLoggedIn) {
+        setShowLogoutConfirm(true);
+      }
+    };
+
+    window.addEventListener('popstate', handleAppBack);
+    return () => {
+      window.removeEventListener('popstate', handleAppBack);
+    };
+  }, [
+    stockInDetailOpen,
+    trxResultModal,
+    showLogoutConfirm,
+    selectedDashboardItemHistory,
+    selectedSupplierDetail,
+    dashboardSubView,
+    dashboardSubSearch,
+    activeTab,
+    isLoggedIn
+  ]);
+
   // Memanggil API action "dashboard" menggunakan token sesi dari Apps Script
   const fetchDashboardData = async (forcedToken?: string) => {
     const token = forcedToken || localStorage.getItem(KJS_TOKEN_KEY);
